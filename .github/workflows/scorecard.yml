@@ -3,9 +3,10 @@
 # Scorecard scores the repository against the OpenSSF supply-chain best-practice
 # checks (Branch-Protection, Token-Permissions, Pinned-Dependencies,
 # Dangerous-Workflow, etc.) and uploads the findings as SARIF to the
-# code-scanning tab. The score is treated as a checklist, not a guarantee: each
-# check is triaged (fixed or documented-accept), same as the other security
-# insights.
+# code-scanning tab. The score is treated as a checklist and not as a guarantee:
+# each check is either fixed or accepted with the reason written down, and a
+# score nobody read means nothing was decided. Nothing here refuses a change, so
+# a finding left untriaged is invisible until somebody opens the tab.
 #
 # Runs where publishing is valid: on push to the default branch, on a weekly
 # schedule (keeps the Maintained check fresh and re-scores on upstream changes),
@@ -13,14 +14,14 @@
 # Branch-Protection check see the ruleset). No pull_request trigger - that path
 # is experimental upstream and cannot publish results.
 #
-# Hardened per the repo's workflow policy (see zizmor.yml): every action is
-# SHA-pinned with a version comment, checkout runs with persist-credentials:false,
-# permissions are declared read-only at the top level and the write scopes are
-# granted only on the job that needs them. This is a self-audit only - it does
-# not build, test, or touch the publish/release pipeline. Note: publish_results
+# Hardened per the workflow policy in zizmor.yml: every action is SHA-pinned with
+# a version comment, checkout runs with persist-credentials:false, permissions are
+# declared read-only at the top level and the write scopes are granted only on the
+# job that needs them. This is a self-audit only. It does not build anything, run
+# any test, or produce anything this project distributes. Note: publish_results
 # below publishes the OpenSSF supply-chain *score* to the OpenSSF API (the public
-# badge), not any software artifact - it is unrelated to the plugin release
-# pipeline and only works when run from the default branch.
+# badge) and no software artifact of any kind, and it only works when run from the
+# default branch.
 name: Scorecard supply-chain security
 
 on:
@@ -87,7 +88,8 @@ jobs:
           path: results.sarif
           retention-days: 5
 
-      # Surface the findings in the code-scanning tab, alongside CodeQL and zizmor.
+      # Surface the findings in the code-scanning tab, alongside zizmor, which is
+      # the only other analysis this repository uploads there.
       - name: Upload to code-scanning
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
