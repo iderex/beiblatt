@@ -41,4 +41,27 @@ and the check that it worked is:
 
     .venv/bin/python -m unittest discover -s tests
 
+## The gate
+
+    .venv/bin/python -m gate
+
+That is the whole of it. It runs its legs in a fixed order, stops at the first
+failure, and exits non-zero if anything failed. A local run and a run anywhere
+else are the same command, so there is one procedure rather than two that
+agree on the day they are written and drift afterwards.
+
+What the legs are is not written here. The run prints them, and
+
+    .venv/bin/python -m gate --list
+
+prints them without running any. A list in this file would be a second place
+that has to be corrected every time a leg is added, and the version that stops
+being corrected is this one. A leg that cannot run yet is printed too, together
+with what asking for it would cost, so a run that covered less than the whole
+set cannot be read as a run that covered it and found nothing.
+
+The gate is not what stands behind a merge. It is a command that can be skipped
+by not running it, and whether anybody ran it before pushing is not a fact this
+repository holds.
+
 See [NOTICE.md](NOTICE.md) for the intended-use notice.
