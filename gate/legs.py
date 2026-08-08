@@ -12,6 +12,9 @@ that has more and is not checking them.
 
 from __future__ import annotations
 
+import os
+
+from gate.headless import DISPLAY_VARIABLES, asserted
 from gate.pins import examine
 from gate.run import ROOT, Leg, Outcome, python
 
@@ -61,6 +64,41 @@ def _unit_tests() -> Outcome:
     return python(["-m", "unittest", "discover", "-s", "tests", "-v"])
 
 
+# The suite, started inside an interpreter that has the guard on it before any
+# test is imported. A wrapper script would be a second file saying the same
+# thing; this is the same discovery the tests leg runs, with one line in front.
+_GUARDED_SUITE = (
+    "import unittest;"
+    "from gate.headless import install;"
+    "install();"
+    "unittest.main(module=None, argv=['gate', 'discover', '-s', 'tests', '-v'])"
+)
+
+
+def _headless() -> Outcome:
+    """The suite again, with no display, no privilege, no network and no write
+    outside the tree.
+
+    It is a second run of the same tests rather than a replacement for the
+    first, and it costs what the suite costs. What it buys is a distinction the
+    single run cannot make: whether a red is the tests failing or the tests
+    needing something this project says they may not need.
+    """
+    environment = dict(os.environ)
+    for name in DISPLAY_VARIABLES:
+        environment.pop(name, None)
+    # An interactive backend chosen from the environment is the other way a
+    # suite acquires a display, so it is pinned rather than left unset.
+    environment["MPLBACKEND"] = "Agg"
+    # No bytecode, so the run writes nothing beside the interpreter it borrowed
+    # and the write refusal has no false positive to explain away.
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    for sentence in asserted():
+        print(f"gate: headless: asserts {sentence}", flush=True)
+    return python(["-B", "-c", _GUARDED_SUITE], env=environment)
+
+
 def legs() -> list[Leg]:
     """The declared set, rebuilt on each call so that nothing shares state
     between runs."""
@@ -92,5 +130,13 @@ def legs() -> list[Leg]:
             name="tests",
             decides="the unit suite passes",
             run=_unit_tests,
+        ),
+        Leg(
+            name="headless",
+            decides=(
+                "the suite passes with no display, no privilege, no network "
+                "and no write outside the tree"
+            ),
+            run=_headless,
         ),
     ]
