@@ -27,7 +27,11 @@ from gate.headless import (
     SOCKET_EVENTS,
     WROTE_OUTSIDE_THE_TREE,
     asserted,
+    check_environment,
+    judge,
+    roots,
 )
+from gate.refusal import Refusal
 from gate.legs import legs
 from gate.run import ROOT
 
@@ -113,6 +117,113 @@ class TestEachNearMissIsRefused(unittest.TestCase):
         for invocation, _ in ATTEMPTS:
             with self.subTest(attempt=invocation[0]):
                 self.assertTrue((NEAR_MISS / invocation[0]).is_file())
+
+
+class TestEachRefusalInThisInterpreter(unittest.TestCase):
+    """Every site, reached here rather than in a child, asserting which refusal
+    came back.
+
+    The near-misses above prove the guard end to end, through a real interpreter
+    doing a real thing. What they cannot do is show that a particular refusal
+    site was the one that fired, because a child process reports an exit code
+    and a message and both would look the same if two sites emitted the same
+    identifier. These reach each site directly and are what the proof leg sees.
+    """
+
+    def refusal_from(self, call, *arguments):
+        with self.assertRaises(Refusal) as raised:
+            call(*arguments)
+        return raised.exception
+
+    def test_a_windowing_import_is_refused(self):
+        refusal = self.refusal_from(judge, "import", ("tkinter.ttk",), roots())
+        self.assertEqual(refusal.refusal, OPENED_A_WINDOW)
+        self.assertEqual(refusal.subject, "tkinter.ttk")
+
+    def test_an_ordinary_import_is_not(self):
+        self.assertIsNone(judge("import", ("json",), roots()))
+
+    def test_a_spawn_naming_a_privilege_tool_is_refused(self):
+        refusal = self.refusal_from(
+            judge, "subprocess.Popen", ("runas", ["runas", "/user:Administrator", "cmd"], None, None), roots()
+        )
+        self.assertEqual(refusal.refusal, ACQUIRED_PRIVILEGE)
+        self.assertIn("runas", refusal.subject)
+
+    def test_a_spawn_asking_for_the_elevation_verb_is_refused(self):
+        """Fails if the second spelling stops being caught.
+
+        This is the site the subprocess near-miss cannot reach: it names an
+        ordinary program and puts the request in an argument, so the tool-name
+        check walks past it. Two sites in one function are indistinguishable to
+        a test that only reads the exit code, which is why this one is here and
+        not in a child.
+        """
+        refusal = self.refusal_from(
+            judge,
+            "subprocess.Popen",
+            ("powershell", ["powershell", "-Verb", "RunAs", "-FilePath", "cmd"], None, None),
+            roots(),
+        )
+        self.assertEqual(refusal.refusal, ACQUIRED_PRIVILEGE)
+        self.assertIn("-Verb", refusal.subject)
+
+    def test_an_ordinary_spawn_is_not_refused(self):
+        self.assertIsNone(
+            judge("subprocess.Popen", ("git", ["git", "status"], None, None), roots())
+        )
+
+    def test_a_privilege_tool_named_only_in_an_argument_is_not_refused(self):
+        """Fails if the guard reads the whole argument list again.
+
+        A commit message mentioning one of these programs is not a request to
+        run it, and refusing that is the kind of false positive that gets a
+        guard turned off. It is also what made the verb site unreachable, since
+        the verb and one of the tool names are the same word.
+        """
+        self.assertIsNone(
+            judge(
+                "subprocess.Popen",
+                ("git", ["git", "commit", "-m", "sudo this later"], None, None),
+                roots(),
+            )
+        )
+
+    def test_os_system_goes_through_the_same_check(self):
+        refusal = self.refusal_from(judge, "os.system", ("sudo make install",), roots())
+        self.assertEqual(refusal.refusal, ACQUIRED_PRIVILEGE)
+
+    def test_every_socket_event_is_refused_by_name(self):
+        for event in sorted(SOCKET_EVENTS):
+            with self.subTest(event=event):
+                refusal = self.refusal_from(judge, event, (), roots())
+                self.assertEqual(refusal.refusal, OPENED_A_SOCKET)
+                self.assertEqual(refusal.subject, event)
+
+    def test_a_write_outside_the_tree_is_refused(self):
+        outside = str(Path.home() / "a-file-this-test-never-creates")
+        refusal = self.refusal_from(judge, "open", (outside, "w", 0), roots())
+        self.assertEqual(refusal.refusal, WROTE_OUTSIDE_THE_TREE)
+        self.assertEqual(refusal.subject, outside)
+
+    def test_a_write_inside_the_tree_and_a_read_outside_it_are_not(self):
+        """Fails if the guard refuses work it is supposed to allow. Reading is
+        not writing, and the repository and the temporary directory are where a
+        test is meant to put things."""
+        self.assertIsNone(judge("open", (str(ROOT / "build" / "x"), "w", 0), roots()))
+        self.assertIsNone(judge("open", (str(Path.home() / "anything"), "r", 0), roots()))
+        self.assertIsNone(judge("open", (3, "w", 0), roots()))
+
+    def test_an_environment_offering_a_screen_is_refused(self):
+        for variable in DISPLAY_VARIABLES:
+            with self.subTest(variable=variable):
+                refusal = self.refusal_from(check_environment, {variable: ":0"})
+                self.assertEqual(refusal.refusal, OPENED_A_WINDOW)
+                self.assertEqual(refusal.subject, variable)
+
+    def test_an_environment_with_no_screen_is_accepted(self):
+        self.assertIsNone(check_environment({"PATH": "/usr/bin"}))
+        self.assertIsNone(check_environment({name: "" for name in DISPLAY_VARIABLES}))
 
 
 class TestTheGuardDoesNotRefuseOrdinaryWork(unittest.TestCase):

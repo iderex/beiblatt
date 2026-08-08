@@ -39,6 +39,8 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 
+from gate.refusal import Refusal
+
 # PEP 503 normalisation. Two spellings of one distribution have to compare
 # equal, or `PyYAML` in pyproject.toml and `pyyaml` in the lock file would read
 # as two different dependencies and the leg would refuse a tree that is right.
@@ -69,22 +71,6 @@ class Requirement:
     name: str | None
     version: str | None
     hashes: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class Refusal:
-    """One refused subject, under the identifier of the property that refused it.
-
-    The identifier is stable and is what a reader quotes. The subject says which
-    line or which name was refused, so a run does not send anybody looking.
-    """
-
-    refusal: str
-    subject: str
-    detail: str
-
-    def __str__(self) -> str:
-        return f"{self.refusal}: {self.subject}: {self.detail}"
 
 
 @dataclass

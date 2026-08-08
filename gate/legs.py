@@ -13,9 +13,12 @@ that has more and is not checking them.
 from __future__ import annotations
 
 import os
+import tempfile
+from pathlib import Path
 
 from gate.headless import DISPLAY_VARIABLES, asserted
 from gate.pins import examine
+from gate.proof import DESTINATION, judge, reached_from, sites, waivers
 from gate.run import ROOT, Leg, Outcome, python
 
 # What the three tooling legs have in common. The documented install reads
@@ -99,6 +102,44 @@ def _headless() -> Outcome:
     return python(["-B", "-c", _GUARDED_SUITE], env=environment)
 
 
+# The suite again, this time inside an interpreter recording which lines of the
+# scope it executed. A third run of the same tests, and it costs what the suite
+# costs; what it buys is the only question a coverage figure cannot answer,
+# which is whether each individual refusal has ever been seen to bite.
+_RECORDED_SUITE = (
+    "import unittest;"
+    "from gate.proof import watch;"
+    "watch();"
+    "unittest.main(module=None, argv=['gate', 'discover', '-s', 'tests'])"
+)
+
+
+def _proof() -> Outcome:
+    """Every refusal site in the source was reached by a test, or is waived."""
+    with tempfile.TemporaryDirectory() as temporary:
+        destination = Path(temporary) / "executed.json"
+        environment = dict(os.environ)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment[DESTINATION] = str(destination)
+
+        recorded = python(["-B", "-c", _RECORDED_SUITE], env=environment)
+        if not recorded.passed:
+            return Outcome(
+                False,
+                "the suite did not pass under the recorder, so what it reached "
+                f"says nothing yet: {recorded.detail}",
+            )
+        reached = reached_from(destination)
+
+    result = judge(sites(ROOT), reached, waivers(ROOT))
+    print(f"gate: proof: examined {result.summary()}", flush=True)
+    for refusal in result.refusals:
+        print(f"gate: proof: refused {refusal}", flush=True)
+    if result.refusals:
+        return Outcome(False, f"{len(result.refusals)} refusal(s) over {result.summary()}")
+    return Outcome(True, f"nothing refused over {result.summary()}")
+
+
 def legs() -> list[Leg]:
     """The declared set, rebuilt on each call so that nothing shares state
     between runs."""
@@ -130,6 +171,14 @@ def legs() -> list[Leg]:
             name="tests",
             decides="the unit suite passes",
             run=_unit_tests,
+        ),
+        Leg(
+            name="proof",
+            decides=(
+                "every place in the source that can refuse something was "
+                "reached by a test, or is waived with what retires the waiver"
+            ),
+            run=_proof,
         ),
         Leg(
             name="headless",
