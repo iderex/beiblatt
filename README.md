@@ -22,8 +22,15 @@ Every version installed comes from `requirements.lock`, which pins each direct
 and transitive dependency to one version and to the hashes of every file the
 index serves for it. `--require-hashes` makes pip refuse anything else rather
 than fetch it, so two installs a month apart get the same bytes.
-`--no-build-isolation` is what keeps the build backend inside that guarantee:
-without it pip fetches the backend separately and the pin does not reach it.
+`--no-build-isolation` is what keeps the build backend inside that guarantee,
+and what it carries there is the hash rather than the version. With build
+isolation pip installs the backend in a step of its own that never reads
+`requirements.lock`: the exact version in `pyproject.toml` still applies, and
+nothing compares the bytes against a hash. Running the second line as
+`pip install --no-deps -e . -vv` shows that step reporting `Given no hashes to
+check` for the backend. The documented order installs the backend from the
+hash-checked file first and then builds against what is already in the
+environment.
 
 Nothing is installed outside the environment and no step needs administrative
 rights.
