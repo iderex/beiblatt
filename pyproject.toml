@@ -44,3 +44,26 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.beiblatt.coverage]
+# The line coverage floor and the figure it was derived from, together, so that
+# lowering the floor is an edit somebody makes to a number sitting beside the
+# measurement it contradicts rather than a tuning nobody notices. A floor above
+# the recorded measurement is refused: that is a target written down as though
+# it were a measurement.
+#
+# `measured` is what the suite achieved when this landed, produced by the
+# command in `measured-by` over gate/ and src/. The floor is the same number
+# and not a round one below it, because a round number is a number nobody
+# produced and the whole point of the pair is that both come from a run. The
+# cost is that a change adding a line no test reaches reds this leg, and the
+# repair is either a test or an edit to both numbers, which is visible either
+# way.
+#
+# This is a signal and not evidence. A line executed by a test that asserts
+# nothing counts the same as a line whose behaviour is checked. The obligation
+# that means something is the `proof` leg, which asks whether each refusal has
+# been seen to bite, and it is why there is no coverage badge in the readme.
+floor = 85.6
+measured = 85.6
+measured-by = "python -m gate"

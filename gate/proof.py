@@ -225,39 +225,52 @@ def judge(found: list[Site], reached: set[tuple[str, int]], waived: list[Waiver]
     return result
 
 
-def watch() -> None:
-    """Record which lines in the scope this interpreter executes.
+# The prelude the recorded run starts with. It is a string rather than a
+# function because of what it has to happen before: every line of this
+# repository that runs at import time, including the lines of this file. A
+# function here would be reached only after importing the module holding it,
+# and everything imported on the way would be reported as never executed. It
+# records every line it sees and the filtering to the scope happens at the end,
+# which is the only order that leaves nothing out.
+RECORDER = (
+    "import sys;"
+    "_m=sys.monitoring;"
+    "_m.use_tool_id(_m.COVERAGE_ID,'beiblatt-line-recorder');"
+    "_seen=set();"
+    "_m.register_callback("
+    "_m.COVERAGE_ID,_m.events.LINE,"
+    "lambda code,number:(_seen.add((code.co_filename,number)),_m.DISABLE)[1]);"
+    "_m.set_events(_m.COVERAGE_ID,_m.events.LINE);"
+    "from gate.proof import record;"
+    "record(_seen);"
+)
 
-    Uses the interpreter's own monitoring rather than a coverage dependency,
-    because the question is narrow: was this line ever executed. Each location
-    is disabled after its first report, so the recording costs one callback per
-    line rather than one per execution.
+
+def record(seen: set[tuple[str, int]]) -> None:
+    """Write what the prelude saw, filtered to the scope, when the run ends.
+
+    Filtering here rather than in the callback is what lets the recording start
+    before this file is imported. The set the prelude fills holds every line the
+    interpreter executed anywhere, which is large and costs one entry per
+    location because each one is disabled after its first report.
     """
     destination = os.environ[DESTINATION]
-    monitoring = sys.monitoring
-    tool = monitoring.COVERAGE_ID
-    monitoring.use_tool_id(tool, "beiblatt-refusal-proof")
-
     watched = {
         os.path.normcase(str(path)): path.relative_to(ROOT).as_posix()
         for path in scope_files(ROOT)
     }
-    seen: set[tuple[str, int]] = set()
-
-    def line(code, number):
-        relative = watched.get(os.path.normcase(code.co_filename))
-        if relative is not None:
-            seen.add((relative, number))
-        return monitoring.DISABLE
-
-    monitoring.register_callback(tool, monitoring.events.LINE, line)
-    monitoring.set_events(tool, monitoring.events.LINE)
 
     def write() -> None:
-        Path(destination).write_text(
-            json.dumps(sorted(f"{path}:{number}" for path, number in seen)),
-            encoding="utf-8",
-        )
+        # Stop recording before reading, or the iteration below executes lines
+        # that the callback is still adding to the set it is iterating.
+        monitoring = sys.monitoring
+        monitoring.set_events(monitoring.COVERAGE_ID, monitoring.events.NO_EVENTS)
+        inside = {
+            f"{watched[name]}:{number}"
+            for name, number in ((os.path.normcase(f), n) for f, n in seen)
+            if name in watched
+        }
+        Path(destination).write_text(json.dumps(sorted(inside)), encoding="utf-8")
 
     atexit.register(write)
 
