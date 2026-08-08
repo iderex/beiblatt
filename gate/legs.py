@@ -17,8 +17,11 @@ import tempfile
 from pathlib import Path
 
 from gate.headless import DISPLAY_VARIABLES, asserted
+from gate.coverage import CONFIGURATION, REPORT, measure, read_floor
+from gate.coverage import judge as judge_coverage
 from gate.pins import examine
-from gate.proof import DESTINATION, judge, reached_from, sites, waivers
+from gate.proof import DESTINATION, RECORDER, reached_from, sites, waivers
+from gate.proof import judge as judge_proof
 from gate.run import ROOT, Leg, Outcome, python
 
 # What the three tooling legs have in common. The documented install reads
@@ -106,32 +109,75 @@ def _headless() -> Outcome:
 # scope it executed. A third run of the same tests, and it costs what the suite
 # costs; what it buys is the only question a coverage figure cannot answer,
 # which is whether each individual refusal has ever been seen to bite.
-_RECORDED_SUITE = (
+_RECORDED_SUITE = RECORDER + (
     "import unittest;"
-    "from gate.proof import watch;"
-    "watch();"
     "unittest.main(module=None, argv=['gate', 'discover', '-s', 'tests'])"
 )
 
 
-def _proof() -> Outcome:
-    """Every refusal site in the source was reached by a test, or is waived."""
+def _recorded_suite() -> tuple[Outcome, set[tuple[str, int]]]:
+    """Run the suite inside an interpreter recording which lines of the scope
+    it executed, and give back both the verdict and what it saw."""
     with tempfile.TemporaryDirectory() as temporary:
         destination = Path(temporary) / "executed.json"
         environment = dict(os.environ)
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         environment[DESTINATION] = str(destination)
-
         recorded = python(["-B", "-c", _RECORDED_SUITE], env=environment)
         if not recorded.passed:
-            return Outcome(
-                False,
-                "the suite did not pass under the recorder, so what it reached "
-                f"says nothing yet: {recorded.detail}",
-            )
-        reached = reached_from(destination)
+            return recorded, set()
+        return recorded, reached_from(destination)
 
-    result = judge(sites(ROOT), reached, waivers(ROOT))
+
+def _coverage() -> Outcome:
+    """The line coverage figure, and the floor the configuration sets.
+
+    A signal rather than evidence, which is why the number is printed and kept
+    and why nothing here treats it as saying the code is tested. What the
+    refusal catches is a drop, and a drop is what somebody adding code without
+    tests produces.
+    """
+    recorded, reached = _recorded_suite()
+    if not recorded.passed:
+        return Outcome(
+            False,
+            "the suite did not pass under the recorder, so the figure would be "
+            f"a figure for a failing run: {recorded.detail}",
+        )
+
+    coverage = measure(ROOT, reached)
+    floor = read_floor((ROOT / CONFIGURATION).read_text(encoding="utf-8"))
+    report = ROOT / REPORT
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(coverage.report(), encoding="utf-8")
+
+    print(f"gate: coverage: measured {coverage.summary()}", flush=True)
+    print(
+        f"gate: coverage: floor {floor.floor:.1f}%, derived from "
+        f"{floor.measured:.1f}% measured by {floor.measured_by}",
+        flush=True,
+    )
+    print(f"gate: coverage: report written to {REPORT.as_posix()}", flush=True)
+
+    refusals = judge_coverage(coverage, floor)
+    for refusal in refusals:
+        print(f"gate: coverage: refused {refusal}", flush=True)
+    if refusals:
+        return Outcome(False, f"{len(refusals)} refusal(s) over {coverage.summary()}")
+    return Outcome(True, f"{coverage.summary()}, floor {floor.floor:.1f}%")
+
+
+def _proof() -> Outcome:
+    """Every refusal site in the source was reached by a test, or is waived."""
+    recorded, reached = _recorded_suite()
+    if not recorded.passed:
+        return Outcome(
+            False,
+            "the suite did not pass under the recorder, so what it reached "
+            f"says nothing yet: {recorded.detail}",
+        )
+
+    result = judge_proof(sites(ROOT), reached, waivers(ROOT))
     print(f"gate: proof: examined {result.summary()}", flush=True)
     for refusal in result.refusals:
         print(f"gate: proof: refused {refusal}", flush=True)
@@ -171,6 +217,14 @@ def legs() -> list[Leg]:
             name="tests",
             decides="the unit suite passes",
             run=_unit_tests,
+        ),
+        Leg(
+            name="coverage",
+            decides=(
+                "the line coverage figure is at or above the floor the "
+                "configuration sets, and the floor is one that was measured"
+            ),
+            run=_coverage,
         ),
         Leg(
             name="proof",
