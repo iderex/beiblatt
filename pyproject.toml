@@ -64,6 +64,6 @@ where = ["src"]
 # nothing counts the same as a line whose behaviour is checked. The obligation
 # that means something is the `proof` leg, which asks whether each refusal has
 # been seen to bite, and it is why there is no coverage badge in the readme.
-floor = 85.6
-measured = 85.6
+floor = 86.3
+measured = 86.3
 measured-by = "python -m gate"
