@@ -47,6 +47,8 @@ import os
 import sys
 import tempfile
 
+from gate.refusal import Refusal
+
 OPENED_A_WINDOW = "opened-a-window"
 ACQUIRED_PRIVILEGE = "acquired-privilege"
 OPENED_A_SOCKET = "opened-a-socket"
@@ -86,19 +88,6 @@ SOCKET_EVENTS = frozenset({"socket.__new__", "socket.getaddrinfo", "socket.getho
 _installed = False
 
 
-class Refused(RuntimeError):
-    """One attempt, refused before it happened.
-
-    The refusal identifier is the first thing in the message because that is
-    what a run quotes and what a test matches on.
-    """
-
-    def __init__(self, refusal: str, detail: str) -> None:
-        super().__init__(f"{refusal}: {detail}")
-        self.refusal = refusal
-        self.detail = detail
-
-
 def installed() -> bool:
     """Whether this interpreter has the guard.
 
@@ -122,7 +111,7 @@ def asserted() -> tuple[str, ...]:
     )
 
 
-def _roots() -> tuple[str, ...]:
+def roots() -> tuple[str, ...]:
     """Where a test may write. The repository, because that is the tree under
     test, and the temporary directory, because that is where a test puts what
     it makes."""
@@ -156,20 +145,101 @@ def _words(command) -> list[str]:
     return [str(command)]
 
 
-def _refuse_privilege(command) -> None:
-    words = _words(command)
-    for word in words:
+def refuse_privilege(executable, argv=()) -> None:
+    """Refuse a command that acquires privilege.
+
+    Two sites, because the two spellings are different things. The first is the
+    program being launched: a privilege tool named as the executable or as the
+    first word of the command. The second is an ordinary program handed the
+    verb that asks the system to elevate it, which the first cannot see because
+    the program it names is innocent.
+
+    The first site reads only what is being launched and not the whole argument
+    list. Scanning every word refused `git commit -m "sudo this"`, and a guard
+    that refuses valid work is one somebody turns off. It also made the second
+    site unreachable, because the verb and one of the tool names are the same
+    word, and an unreachable site is a rule this repository would have gone on
+    claiming.
+    """
+    words = _words(argv)
+    launched = _words(executable)[:1] + words[:1]
+    for word in launched:
         if _basename(word) in PRIVILEGE_TOOLS:
-            raise Refused(
+            raise Refusal(
                 ACQUIRED_PRIVILEGE,
-                f"a test asked to run {' '.join(words)!r}, which acquires privilege",
+                " ".join(launched),
+                "launches a program whose job is to run something with privilege",
             )
-    lowered = [w.lower() for w in words]
-    if PRIVILEGE_VERB in lowered and any(w.startswith("-verb") for w in lowered):
-        raise Refused(
-            ACQUIRED_PRIVILEGE,
-            f"a test asked to run {' '.join(words)!r}, which acquires privilege",
+
+    lowered = [word.lower() for word in words]
+    for index, word in enumerate(lowered):
+        if not word.startswith("-verb"):
+            continue
+        if PRIVILEGE_VERB in word or PRIVILEGE_VERB in lowered[index + 1 : index + 2]:
+            raise Refusal(
+                ACQUIRED_PRIVILEGE,
+                " ".join(words),
+                f"asks for the {PRIVILEGE_VERB} verb, which is the other spelling "
+                f"of the same request",
+            )
+
+
+def check_environment(environment) -> None:
+    """Refuse a run whose environment says a screen was available.
+
+    Separate from the hook, and called before it is installed, because this is
+    a fact about the run rather than about anything a test did. Without it a
+    guarded run on a machine with a display would pass and be reported as
+    headless.
+    """
+    present = [name for name in DISPLAY_VARIABLES if environment.get(name)]
+    if present:
+        raise Refusal(
+            OPENED_A_WINDOW,
+            ", ".join(present),
+            "is set, so this run had a display available and cannot be reported "
+            "as one that did not",
         )
+
+
+def judge(event: str, arguments: tuple, roots: tuple[str, ...]) -> None:
+    """Decide one audited event.
+
+    A function rather than a closure inside install(), so that every refusal
+    below is reachable from a test in this same interpreter. A site that can
+    only be reached by starting a second process is a site the proof leg cannot
+    see, and a site nothing can see is one that gets deleted quietly.
+    """
+    if event == "import":
+        if _top_level(arguments[0]) in WINDOWING:
+            raise Refusal(
+                OPENED_A_WINDOW,
+                arguments[0],
+                "is a windowing toolkit, and importing one needs a screen to draw on",
+            )
+    elif event in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
+        refuse_privilege(arguments[0], arguments[1])
+    elif event == "os.system":
+        refuse_privilege(arguments[0])
+    elif event in SOCKET_EVENTS:
+        raise Refusal(
+            OPENED_A_SOCKET,
+            event,
+            "reaches the network, so the suite fails on a machine with no route out",
+        )
+    elif event == "open":
+        path, mode = arguments[0], arguments[1]
+        if path is None or isinstance(path, int) or not isinstance(mode, str):
+            return
+        if not any(letter in mode for letter in "wxa+"):
+            return
+        if not _inside(os.fspath(path), roots):
+            raise Refusal(
+                WROTE_OUTSIDE_THE_TREE,
+                os.fspath(path),
+                "was opened for writing and is neither in the repository nor in "
+                "the temporary directory",
+            )
 
 
 def install() -> None:
@@ -183,48 +253,7 @@ def install() -> None:
     if _installed:
         return
 
-    present = [name for name in DISPLAY_VARIABLES if os.environ.get(name)]
-    if present:
-        raise Refused(
-            OPENED_A_WINDOW,
-            f"{', '.join(present)} is set, so this run had a display available "
-            f"and cannot be reported as one that did not",
-        )
-
-    roots = _roots()
-
-    def hook(event: str, arguments: tuple) -> None:
-        if event == "import":
-            if _top_level(arguments[0]) in WINDOWING:
-                raise Refused(
-                    OPENED_A_WINDOW,
-                    f"a test imported {arguments[0]}, which needs a screen to draw on",
-                )
-        elif event in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
-            _refuse_privilege(arguments[1])
-            _refuse_privilege(arguments[0])
-        elif event == "os.system":
-            _refuse_privilege(arguments[0])
-        elif event in SOCKET_EVENTS:
-            raise Refused(
-                OPENED_A_SOCKET,
-                f"a test reached the network through {event}, so it fails on a "
-                f"machine with no route out",
-            )
-        elif event == "open":
-            path, mode = arguments[0], arguments[1]
-            if path is None or not isinstance(mode, str):
-                return
-            if not any(letter in mode for letter in "wxa+"):
-                return
-            if isinstance(path, int):
-                return
-            if not _inside(os.fspath(path), roots):
-                raise Refused(
-                    WROTE_OUTSIDE_THE_TREE,
-                    f"a test opened {os.fspath(path)!r} for writing, which is "
-                    f"neither in the repository nor in the temporary directory",
-                )
-
-    sys.addaudithook(hook)
+    check_environment(os.environ)
+    permitted = roots()
+    sys.addaudithook(lambda event, arguments: judge(event, arguments, permitted))
     _installed = True
