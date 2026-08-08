@@ -1,0 +1,49 @@
+# What git is allowed to change about a file on its way into the object store
+# and back out of it.
+#
+# With this file absent, that is decided by whatever core.autocrlf the
+# contributor's platform set when git was installed. The bytes in a clone then
+# depend on who cloned it, which is tolerable for source and is not tolerable
+# here: this project's fixtures are documents that are meant to be wrong in one
+# specific way, and for several of them the defining byte is exactly the byte a
+# normalisation setting removes. A budget file that is invalid because of a
+# stray carriage return, checked in raw and checked out somewhere with the
+# other setting, arrives at the validator clean. The validator correctly
+# accepts it and the suite goes green while proving the opposite of what it
+# claims.
+#
+# So the treatment is fixed here rather than inherited. Everything in this tree
+# is text, is stored with LF endings, and is checked out with LF endings on
+# every platform. eol=lf rather than eol=native, because native means two
+# clones of one commit hold different bytes and every claim about a file's
+# content has to name which platform it was made on.
+
+* text=auto eol=lf
+
+# The types this tree holds, named rather than left to the content guess in
+# text=auto. The guess is right almost always, and the case it gets wrong is a
+# file that happens to contain a byte it reads as binary, which is the shape a
+# fixture is most likely to have.
+
+*.py            text eol=lf
+*.md            text eol=lf
+*.toml          text eol=lf
+*.lock          text eol=lf
+*.txt           text eol=lf
+*.cfg           text eol=lf
+*.json          text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.sh            text eol=lf
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+DCO             text eol=lf
+
+# There is deliberately no rule marking a fixture directory binary. That would
+# be the other way of solving this, and it fails quietly: a rule attached to a
+# path protects the fixtures somebody remembered to put there, and says nothing
+# about the one written next to the test that uses it. The convention this
+# repository takes instead is that a fixture whose content matters at the byte
+# level is carried encoded in source, where no setting anywhere can rewrite it,
+# and the encoding is a helper with one job so that skipping it is visible in
+# review. tests/fixtures.py is that helper and says the rest.
