@@ -20,6 +20,7 @@ from gate.headless import DISPLAY_VARIABLES, asserted
 from gate.coverage import CONFIGURATION, REPORT, measure, read_floor
 from gate.coverage import judge as judge_coverage
 from gate.pins import examine
+from gate.suppressions import examine as examine_suppressions
 from gate.proof import DESTINATION, RECORDER, reached_from, sites, waivers
 from gate.proof import judge as judge_proof
 from gate.run import ROOT, Leg, Outcome, python
@@ -113,6 +114,17 @@ _RECORDED_SUITE = RECORDER + (
     "import unittest;"
     "unittest.main(module=None, argv=['gate', 'discover', '-s', 'tests'])"
 )
+
+
+def _suppressions() -> Outcome:
+    """Every suppression comment carries a written reason on the same line."""
+    examined = examine_suppressions(ROOT)
+    print(f"gate: suppressions: examined {examined.summary()}", flush=True)
+    for refusal in examined.refusals:
+        print(f"gate: suppressions: refused {refusal}", flush=True)
+    if examined.refusals:
+        return Outcome(False, f"{len(examined.refusals)} refusal(s) over {examined.summary()}")
+    return Outcome(True, f"nothing refused over {examined.summary()}")
 
 
 def _recorded_suite() -> tuple[Outcome, set[tuple[str, int]]]:
@@ -212,6 +224,11 @@ def legs() -> list[Leg]:
                 "exact version and carries a hash"
             ),
             run=_pins,
+        ),
+        Leg(
+            name="suppressions",
+            decides="every suppression comment carries a written reason",
+            run=_suppressions,
         ),
         Leg(
             name="tests",
