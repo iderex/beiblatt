@@ -1,0 +1,46 @@
+# The project metadata. This file declares what the package is, which runtimes
+# it claims to support and what it depends on. It does not pin anything: the
+# exact versions and their hashes are in requirements.lock, which is what an
+# install reads.
+
+[build-system]
+# Pinned to an exact version for the same reason the runtime dependencies are.
+# The build backend runs code during an install, so an unpinned one is an
+# unpinned dependency with a shorter name. requirements.lock carries the hashes
+# for this version, and the documented install builds with --no-build-isolation
+# so the backend comes from there rather than from an unhashed fetch.
+requires = ["setuptools==83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beiblatt"
+version = "0.0.0"
+description = "A format for published systematic uncertainty budgets, and the reference arithmetic that combines them"
+readme = "README.md"
+
+# The floor is not a preference. numpy 2.5.1, which requirements.lock pins,
+# declares Requires-Python >=3.12, so nothing below that can install this set:
+#
+#     python -m pip install --dry-run --report - pyyaml jsonschema numpy
+#
+# Only 3.14 has been executed against this tree. The claim that 3.12 and 3.13
+# work is a claim and not a measurement until the workflow in #18 runs them.
+requires-python = ">=3.12"
+
+# The three the means decision named, in docs/decisions/0013-the-means.md: a
+# YAML parser, a JSON Schema validator and a numerical linear algebra library.
+# Each floor is the version requirements.lock pins, because that is the only
+# version anything here has been run against.
+dependencies = [
+    "PyYAML>=6.0.3",
+    "jsonschema>=4.26.0",
+    "numpy>=2.5.1",
+]
+
+# There is deliberately no license field. This repository has no LICENSE file
+# and the choice is one of the maintainer decisions collected in #15. A licence
+# named here would take that decision quietly, which is what #15 exists to
+# prevent, so the field stays absent until it is answered.
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,14 @@
+# The environment the readme's install command creates, and what the runtime
+# writes beside the source while it runs. Both appear inside a clone as soon as
+# somebody follows the install, so leaving them untracked but unignored would
+# put them in front of every reader of git status and eventually in a commit.
+.venv/
+__pycache__/
+*.py[cod]
+
+# The build backend's output directories. An editable install writes the first
+# two; a source or wheel build writes the rest.
+*.egg-info/
+.eggs/
+build/
+dist/

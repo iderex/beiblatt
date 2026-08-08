@@ -6,4 +6,39 @@ Planning happens on the issue tracker first. Every decision that shapes
 the architecture is written down there with its reasons before the code
 that depends on it exists.
 
+## Installing
+
+Python 3.12 or newer has to be on the machine. Nothing else does. From a clean
+clone:
+
+    python -m venv .venv
+    .venv/bin/python -m pip install --require-hashes -r requirements.lock
+    .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
+
+On Windows the interpreter inside the environment is `.venv/Scripts/python.exe`
+and the three lines are otherwise the same.
+
+Every version installed comes from `requirements.lock`, which pins each direct
+and transitive dependency to one version and to the hashes of every file the
+index serves for it. `--require-hashes` makes pip refuse anything else rather
+than fetch it, so two installs a month apart get the same bytes.
+`--no-build-isolation` is what keeps the build backend inside that guarantee,
+and what it carries there is the hash rather than the version. With build
+isolation pip installs the backend in a step of its own that never reads
+`requirements.lock`: the exact version in `pyproject.toml` still applies, and
+nothing compares the bytes against a hash. Running the second line as
+`pip install --no-deps -e . -vv` shows that step reporting `Given no hashes to
+check` for the backend. The documented order installs the backend from the
+hash-checked file first and then builds against what is already in the
+environment.
+
+Nothing is installed outside the environment and no step needs administrative
+rights.
+
+The package holds no schema, no validator and no arithmetic yet. What the
+install produces at this point is an environment the later milestones build in,
+and the check that it worked is:
+
+    .venv/bin/python -m unittest discover -s tests
+
 See [NOTICE.md](NOTICE.md) for the intended-use notice.
