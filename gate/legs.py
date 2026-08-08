@@ -12,7 +12,8 @@ that has more and is not checking them.
 
 from __future__ import annotations
 
-from gate.run import Leg, Outcome, python
+from gate.pins import examine
+from gate.run import ROOT, Leg, Outcome, python
 
 # What the three tooling legs have in common. The documented install reads
 # requirements.lock with --require-hashes, so a tool that is not in that file
@@ -24,6 +25,28 @@ _PINNED_INSTALL = (
     "that file with --require-hashes. Asking costs the tool and its transitive "
     "set pinned to exact versions with the hash of every file the index serves"
 )
+
+
+def _pins() -> Outcome:
+    """Every dependency that reaches an install is pinned and hashed.
+
+    What was examined is printed whether or not anything was refused, because a
+    run against a file this leg failed to read would otherwise be
+    indistinguishable from a run against a file with nothing wrong in it.
+    """
+    examined = examine(
+        (ROOT / "requirements.lock").read_text(encoding="utf-8"),
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+    )
+    print(f"gate: pins: examined {examined.summary()}", flush=True)
+    for refusal in examined.refusals:
+        print(f"gate: pins: refused {refusal}", flush=True)
+    if examined.refusals:
+        return Outcome(
+            False,
+            f"{len(examined.refusals)} refusal(s) over {examined.summary()}",
+        )
+    return Outcome(True, f"nothing refused over {examined.summary()}")
 
 
 def _unit_tests() -> Outcome:
@@ -56,6 +79,14 @@ def legs() -> list[Leg]:
             name="types",
             decides="the type checker finds nothing under its strict setting",
             cost=f"{_PINNED_INSTALL}. The type checker and this leg are issue #27",
+        ),
+        Leg(
+            name="pins",
+            decides=(
+                "every dependency that reaches an install is pinned to one "
+                "exact version and carries a hash"
+            ),
+            run=_pins,
         ),
         Leg(
             name="tests",
