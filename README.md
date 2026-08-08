@@ -64,4 +64,17 @@ The gate is not what stands behind a merge. It is a command that can be skipped
 by not running it, and whether anybody ran it before pushing is not a fact this
 repository holds.
 
+### Running it before a push
+
+Once per clone:
+
+    git config core.hooksPath .githooks
+
+That points git at the tracked hook, which runs the gate command and nothing
+else. It shortens the feedback loop and it is not the enforcement. It is absent
+from a fresh clone, one flag on the push skips it, and whether any given clone
+ran the line above is a fact of that clone's local git configuration which
+nothing in this repository can read. Nothing here is going to notice that you
+did not.
+
 See [NOTICE.md](NOTICE.md) for the intended-use notice.
