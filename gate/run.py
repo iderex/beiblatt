@@ -73,7 +73,9 @@ class Report:
     detail: str
 
 
-def command(argv: list[str], cwd: Path = ROOT) -> Outcome:
+def command(
+    argv: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None
+) -> Outcome:
     """Run a subprocess and turn its exit code into an outcome.
 
     The command is echoed into the detail whichever way it went, so the reader
@@ -81,19 +83,21 @@ def command(argv: list[str], cwd: Path = ROOT) -> Outcome:
     one is not left reconstructing it.
     """
     shown = " ".join(argv)
-    completed = subprocess.run(argv, cwd=cwd)
+    completed = subprocess.run(argv, cwd=cwd, env=env)
     if completed.returncode == 0:
         return Outcome(True, f"{shown}")
     return Outcome(False, f"{shown} exited {completed.returncode}")
 
 
-def python(args: list[str], cwd: Path = ROOT) -> Outcome:
+def python(
+    args: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None
+) -> Outcome:
     """`command` for a leg that runs this interpreter.
 
     sys.executable rather than "python", so a leg runs in the environment the
     gate was started in and not in whatever the PATH resolves to.
     """
-    return command([sys.executable, *args], cwd=cwd)
+    return command([sys.executable, *args], cwd=cwd, env=env)
 
 
 def walk(legs: list[Leg], out: IO[str]) -> tuple[int, list[Report]]:
